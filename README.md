@@ -1,6 +1,6 @@
 generate artifactos and crypto
 ```
-configtxgen -profile TwoOrgsOrdererGenesis -channelID byfn-sys-channel -outputBlock ./channel-artifacts/genesis.block
+configtxgen -profile TwoOrgsOrdererGenesis -channelID syschannel -outputBlock ./channel-artifacts/genesis.block
 configtxgen -profile TwoOrgsChannel -outputCreateChannelTx ./channel-artifacts/channel.tx -channelID mychannel
 cryptogen generate --config=./crypto-config.yaml
 ```
@@ -49,4 +49,19 @@ peer chaincode invoke -o orderer0.example.com:7050 --tls true --cafile $ORDERER_
 query chaincode
 ```
 peer chaincode query -C mychannel -n mycc -c '{"Args":["query","b"]}'
+```
+
+getch config block on syschannel
+```
+peer channel fetch config configBlock.pb -o orderer0.example.com:7050 -c syschannel --tls --cafile $ORDERER_CA
+```
+
+start orderer3
+```
+docker-compose up orderer3.example.com
+```
+
+set env var before invoking
+```
+setGlobals 0 1
 ```

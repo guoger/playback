@@ -21,6 +21,31 @@ verifyResult() {
   fi
 }
 
+addOrderer() {
+    channel=$1
+    orderer=$2
+    target=$3
+    cert=`base64 /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer${orderer}.example.com/tls/server.crt | sed ':a;N;$!ba;s/\n//g'`
+    echo $cert
+    echo "fetching config block"
+	  CORE_PEER_LOCALMSPID="OrdererMSP"
+	  CORE_PEER_TLS_ROOTCERT_FILE=$ORDERER_CA
+	  CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/users/Admin@example.com/msp
+    peer channel fetch config configBlock.pb -o orderer${target}.example.com:7050 -c "${channel}" --tls --cafile $ORDERER_CA
+    echo "converting config to JSON"
+    configtxlator proto_decode --input configBlock.pb --type common.Block | jq '.data.data[0].payload.data.config' > config.json
+    cat config.json |  jq '.channel_group.groups.Orderer.values.ConsensusType.value.metadata.consenters += [{"client_tls_cert": "'$cert'", "host": "orderer'$orderer'.example.com", "port": 7050, "server_tls_cert": "'$cert'"}] ' > modified_config.json
+    echo "computing the config delta"
+    configtxlator proto_encode --input config.json --type common.Config --output config.pb
+    configtxlator proto_encode --input modified_config.json --type common.Config --output modified_config.pb
+    configtxlator compute_update --channel_id ${channel} --original config.pb --updated modified_config.pb --output delta.pb
+    configtxlator proto_decode --input delta.pb --type common.ConfigUpdate | jq . > delta.json
+    echo '{"payload":{"header":{"channel_header":{"channel_id":"'${channel}'", "type":2}},"data":{"config_update":'$(cat delta.json)'}}}' | jq . > deltaEnv.json
+    configtxlator proto_encode --input deltaEnv.json --type common.Envelope --output deltaEnv.pb
+    peer channel signconfigtx -f deltaEnv.pb
+    peer channel update -f deltaEnv.pb -c ${channel} -o orderer${target}.example.com:7050 --tls --cafile $ORDERER_CA
+}
+
 # Set OrdererOrg.Admin globals
 setOrdererGlobals() {
   CORE_PEER_LOCALMSPID="OrdererMSP"
@@ -31,7 +56,11 @@ setOrdererGlobals() {
 setGlobals() {
   PEER=$1
   ORG=$2
-  if [ $ORG -eq 1 ]; then
+  if [ $ORG -eq 0 ]; then
+    CORE_PEER_LOCALMSPID="OrdererMSP"
+    CORE_PEER_TLS_ROOTCERT_FILE=$ORDERER_CA
+    CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/users/Admin@example.com/msp
+  elif [ $ORG -eq 1 ]; then
     CORE_PEER_LOCALMSPID="Org1MSP"
     CORE_PEER_TLS_ROOTCERT_FILE=$PEER0_ORG1_CA
     CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp
